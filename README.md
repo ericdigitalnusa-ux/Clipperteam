@@ -29,24 +29,18 @@ Hermes Agent video clipping pipelines. Automated YouTube → TikTok/Shorts workf
 
 ## 🚀 Quick Start
 
-### 1. Install Skill
+### 1. Clone & Install
 ```bash
-# Create skill folder
-mkdir -p ~/.hermes/skills/clipper/indigenous-australians-clipper/
-
-# Copy SKILL.md to that folder
-cp SKILL.md ~/.hermes/skills/clipper/indigenous-australians-clipper/
+git clone https://github.com/ericdigitalnusa-ux/Clipperteam.git /tmp/Clipperteam
+cp -r /tmp/Clipperteam/skills/* ~/.hermes/skills/
+cp /tmp/Clipperteam/skills/indigenous-australians-clipper/*.py ~/clipper-company/
 ```
 
 ### 2. Setup Requirements
 
 #### FFmpeg
 ```bash
-# Ubuntu/Debian
 sudo apt install ffmpeg
-
-# Check installation
-ffmpeg -version
 ```
 
 #### Python Dependencies
@@ -56,32 +50,101 @@ pip install faster-whisper
 
 #### Poppins Font
 ```bash
-# Download font
 wget -O Poppins.zip "https://fonts.google.com/download?family=Poppins"
-
-# Extract and install
 unzip -o Poppins.zip -d ~/.fonts/
 fc-cache -fv
 ```
 
 ---
 
-## 📱 Repliz Account Setup
+## 🔐 Environment Variables
 
-### Get Repliz API Key
-1. Login to https://repliz.com
-2. Go to Settings → API Keys
-3. Copy your API key
+Each agent needs their own credentials:
 
-### Setup Environment
 ```bash
-export REPLIZ_API_KEY="your_repliz_api_key_here"
-export REPLIZ_ACCOUNT_ID="your_account_id_here"
+# VPS Upload (where to store videos)
+export VPS_HOST="your-vps.com"
+export VPS_USER="your_ssh_username"
+export VPS_KEY="/path/to/your/ssh_key"
+
+# Repliz Account (where to schedule posts)
+export REPLIZ_API_KEY="your_repliz_api_key"
+export REPLIZ_ACCOUNT_ID="your_repliz_account_id"
+```
+
+### How to get credentials:
+
+**VPS:**
+- Host: Your VPS domain/IP (e.g., `vps.mydomain.com`)
+- User: SSH username
+- Key: Generate SSH key pair, add public key to VPS
+
+**Repliz:**
+1. Login to https://repliz.com
+2. Settings → API Keys → Create new
+3. Account ID: Found in account settings
+
+---
+
+## ⏰ Cronjob Setup (Auto Clip Daily)
+
+### Server Architecture
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Agent Server   │────▶│   VPS Server    │────▶│     Repliz      │
+│  (Download)     │ SCP │   (Storage)     │ API │   (Schedule)    │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+Each agent has:
+- ✅ Own agent server (download video)
+- ✅ Own VPS (store & serve video)
+- ✅ Own Repliz account (schedule posts)
+
+### Create Cronjob
+
+```bash
+hermes cron create \
+  --name "Indigenous Clipper" \
+  --schedule "0 7 * * *" \
+  --skills indigenous-australians-clipper \
+  --prompt "Download Indigenous Australians video to agent server, SCP upload to VPS (host: \$VPS_HOST, user: \$VPS_USER, key: \$VPS_KEY, path: /var/www/html/videos/), schedule to Repliz (api_key: \$REPLIZ_API_KEY, account_id: \$REPLIZ_ACCOUNT_ID)" \
+  --env VPS_HOST,VPS_USER,VPS_KEY,REPLIZ_API_KEY,REPLIZ_ACCOUNT_ID \
+  --deliver origin
+```
+
+### Manual Cron Setup (Alternative)
+```bash
+# 1. Create cron via Hermes CLI
+/hermes/path/cron create
+
+# 2. Or via API
+curl -X POST "http://localhost:PORT/api/cron" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "name": "Indigenous Clipper",
+    "schedule": "0 7 * * *",
+    "skills": ["indigenous-australians-clipper"],
+    "prompt": "Download video, upload to VPS, schedule to Repliz",
+    "env": ["VPS_HOST", "VPS_USER", "VPS_KEY", "REPLIZ_API_KEY", "REPLIZ_ACCOUNT_ID"],
+    "deliver": "origin"
+  }'
+```
+
+### Cron Workflow
+```
+1. Trigger: Daily at 07:00 UTC
+2. Download: yt-dlp video to agent server
+3. Transcribe: faster-whisper language detection
+4. Generate: 59s clip with Gen-Z subtitles
+5. Upload: SCP to VPS /var/www/html/videos/
+6. Schedule: Repliz API post
+7. Notify: Send result to origin chat
 ```
 
 ---
 
-## 🎬 Clipper Workflow
+## 🎬 Manual Workflow
 
 ### Step 1: Download Video
 ```bash
@@ -108,16 +171,14 @@ print(json.dumps([{'start': s.start, 'end': s.end, 'text': s.text.strip()} for s
 
 ### Step 3: Generate Clip
 ```bash
+cd ~/clipper-company
 python3 indigenous_australians_clip.py
 ```
 
 ### Step 4: Upload to VPS
 ```bash
-# Upload video
-scp clips/MwLuPhwpViI/processed/v26/final.mp4 user@vps:/var/www/html/videos/
-
-# Or copy to public folder
-cp clips/MwLuPhwpViI/processed/v26/final.mp4 /var/www/html/videos/
+scp -i $VPS_KEY clips/MwLuPhwpViI/processed/v26/final.mp4 \
+  $VPS_USER@$VPS_HOST:/var/www/html/videos/
 ```
 
 ### Step 5: Schedule to Repliz
@@ -130,8 +191,8 @@ curl -X POST "https://api.repliz.com/public/schedule" \
   -d '{
     "accountId": "'${REPLIZ_ACCOUNT_ID}'",
     "type": "video",
-    "title": "Your Video Title",
-    "description": "Video description...",
+    "title": "What the government gives us...",
+    "topic": "Entertainment",
     "medias": [{"type": "video", "url": "https://your-domain.com/videos/video.mp4"}],
     "scheduleAt": "2026-09-01T14:00:00Z"
   }'
@@ -148,81 +209,45 @@ clipper-company/
 │   └── MwLuPhwpViI/
 │       └── processed/
 │           └── v26/
-│               ├── clip.ass      # Subtitle file
-│               └── final.mp4     # Output video
+│               ├── clip.ass
+│               └── final.mp4
 ├── indigenous_australians_clip.py
-├── SKILL.md
-└── README.md
+└── SKILL.md
+
+~/.hermes/skills/
+└── indigenous-australians-clipper/
+    ├── SKILL.md
+    └── indigenous_australians_clip.py
 ```
 
 ---
 
-## ⚙️ Subtitle Style Settings
+## ⚙️ Subtitle Settings
 
-### Subtitle (Bottom)
+| Element | Font | Size | Color | Position |
+|---------|------|------|-------|----------|
+| Subtitle | Poppins Bold | 65px | White | Bottom letterbox (MarginV=100) |
+| Source | Poppins Bold | 36px | Yellow | Top center |
+| Hook | Poppins Bold | 40px | White | Center with shadow |
+| CTA | Poppins SemiBold | 20px | White | Bottom |
+
+### ASS Style Strings
 ```
-Style: Sub,Poppins Bold,65,&H00FFFFFF,&H000000FF,&H00000000,&HCC000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,15,15,100,1
-```
-- Font: Poppins Bold
-- Size: 65px
-- Color: White
-- Position: Bottom letterbox (MarginV=100)
-- Background: Semi-transparent black
-
-### Source Credit (Top)
-```
-Style: Src,Poppins Bold,36,&H00FFFF00,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2.5,2,8,10,10,20,1
-```
-- Font: Poppins Bold
-- Size: 36px
-- Color: Yellow (#FFFF00)
-- Position: Top center
-
----
-
-## 🔧 FFmpeg Filter Explained
-
-### Cinematic Blur Background
-```bash
-# 1. Scale to 1280x720 (standardize)
-scale=1280:720:flags=lanczos,setsar=1[base]
-
-# 2. Split for background and foreground
-[base]split=2[bga][fga]
-
-# 3. Background: scale up, crop to 9:16, apply blur
-[bga]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=15:2[bg]
-
-# 4. Foreground: scale down to fit 9:16 (adds black bars)
-[fga]scale=720:1280:force_original_aspect_ratio=decrease[fg]
-
-# 5. Overlay foreground centered on blurred background
-[bg][fg]overlay=(W-w)/2:(H-h)/2[vid]
+Subtitle: Style: Sub,Poppins Bold,65,&H00FFFFFF,&H000000FF,&H00000000,&HCC000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,15,15,100,1
+Source:   Style: Src,Poppins Bold,36,&H00FFFF00,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2.5,2,8,10,10,20,1
 ```
 
 ---
 
-## 📋 YouTube Channels to Clip
-
-| Channel | URL | Topic |
-|---------|-----|-------|
-| ABC Australia | https://youtu.be/MwLuPhwpViI | Documentary |
-| Akbar Faizal | https://www.youtube.com/@AkbarFaizalUncensored | Commentary |
-| (Add more) | | |
-
----
-
-## 🔐 Environment Variables
+## 🔧 FFmpeg Filter
 
 ```bash
-# Required - Get from your Repliz account
-export REPLIZ_API_KEY="your_repliz_api_key"
-export REPLIZ_ACCOUNT_ID="your_repliz_account_id"
-
-# Optional - For VPS upload
-export VPS_USER="your_ssh_user"
-export VPS_HOST="your-vps.com"
-export VPS_PATH="/var/www/html/videos/"
+# Cinematic Blur Background
+-vf "scale=1280:720:flags=lanczos,setsar=1[base];
+[base]split=2[bga][fga];
+[bga]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=15:2[bg];
+[fga]scale=720:1280:force_original_aspect_ratio=decrease[fg];
+[bg][fg]overlay=(W-w)/2:(H-h)/2[vid]"
 ```
 
 ---
@@ -246,12 +271,28 @@ fc-cache -fv
 fc-list | grep Poppins
 ```
 
+### VPS upload failed?
+```bash
+# Test SSH connection
+ssh -i $VPS_KEY $VPS_USER@$VPS_HOST "echo OK"
+```
+
 ### Repliz schedule failed?
 ```bash
-# Check API key
+# Verify credentials
 curl -H "Authorization: Basic $(echo -n $REPLIZ_API_KEY | base64)" \
   https://api.repliz.com/public/accounts
 ```
+
+---
+
+## 📋 YouTube Channels
+
+| Channel | URL | Topic |
+|---------|-----|-------|
+| ABC Australia | https://youtu.be/MwLuPhwpViI | Documentary |
+| Akbar Faizal | https://www.youtube.com/@AkbarFaizalUncensored | Commentary |
+| (Add more) | | |
 
 ---
 
