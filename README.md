@@ -75,30 +75,8 @@ fc-cache -fv
 
 ### Setup Environment
 ```bash
-export REPLIZ_API_KEY="your_api_key_here"
-```
-
-### Repliz Account ID
-Each agent needs a Repliz account ID for scheduling:
-- **Default Account:** `6a8a365462caae1e0402a583`
-
-### Schedule Video to Repliz
-```bash
-AUTH=$(echo -n "REPLIZ_API_KEY" | base64)
-ACCOUNT_ID="6a8a365462caae1e0402a583"
-VIDEO_URL="https://your-domain.com/video.mp4"
-
-curl -X POST "https://api.repliz.com/public/schedule" \
-  -H "Authorization: Basic ${AUTH}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accountId": "'${ACCOUNT_ID}'",
-    "type": "video",
-    "title": "Your Video Title",
-    "description": "Video description...",
-    "medias": [{"type": "video", "url": "'${VIDEO_URL}'"}],
-    "scheduleAt": "2026-09-01T14:00:00Z"
-  }'
+export REPLIZ_API_KEY="your_repliz_api_key_here"
+export REPLIZ_ACCOUNT_ID="your_account_id_here"
 ```
 
 ---
@@ -144,15 +122,16 @@ cp clips/MwLuPhwpViI/processed/v26/final.mp4 /var/www/html/videos/
 
 ### Step 5: Schedule to Repliz
 ```bash
-# Schedule for posting
+AUTH=$(echo -n "$REPLIZ_API_KEY" | base64)
+
 curl -X POST "https://api.repliz.com/public/schedule" \
   -H "Authorization: Basic ${AUTH}" \
   -H "Content-Type: application/json" \
   -d '{
-    "accountId": "'${ACCOUNT_ID}'",
+    "accountId": "'${REPLIZ_ACCOUNT_ID}'",
     "type": "video",
-    "title": "What the government gives us...",
-    "topic": "Entertainment",
+    "title": "Your Video Title",
+    "description": "Video description...",
     "medias": [{"type": "video", "url": "https://your-domain.com/videos/video.mp4"}],
     "scheduleAt": "2026-09-01T14:00:00Z"
   }'
@@ -236,10 +215,11 @@ scale=1280:720:flags=lanczos,setsar=1[base]
 ## 🔐 Environment Variables
 
 ```bash
-# Required
+# Required - Get from your Repliz account
 export REPLIZ_API_KEY="your_repliz_api_key"
+export REPLIZ_ACCOUNT_ID="your_repliz_account_id"
 
-# Optional
+# Optional - For VPS upload
 export VPS_USER="your_ssh_user"
 export VPS_HOST="your-vps.com"
 export VPS_PATH="/var/www/html/videos/"

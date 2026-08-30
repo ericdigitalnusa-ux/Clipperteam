@@ -7,14 +7,14 @@ version: 1.0
 
 # Indigenous Australians Documentary — Clipper Pipeline
 
-Source: https://youtu.be/MwLuPhwpViI
-Channel: ABC Australia — "You Can't Ask That"
-Topic: Indigenous Australians documentary
+**Source:** https://youtu.be/MwLuPhwpViI
+**Channel:** ABC Australia — "You Can't Ask That"
+**Topic:** Indigenous Australians documentary
 
 ## Specs
 
 - **Output:** 9:16 vertical 720×1280
-- **Background:** Cinematic blur (Akbar Faizal style)
+- **Background:** Cinematic blur
   - Scale 1280x720 → split → bg: increase+crop+boxblur, fg: decrease → overlay
 - **Subtitle:** Poppins Bold 65px, white, bottom letterbox area
   - MarginV: 100 (position in letterbox)
@@ -37,9 +37,7 @@ Vf="scale=1280:720:flags=lanczos,setsar=1[base];
 ### 1. Download Video
 ```bash
 VIDEO_ID=MwLuPhwpViI
-cd /home/admin/clipper-company
-/home/admin/.local/bin/yt-dlp \
-  -f 18 \
+yt-dlp -f 18 \
   -o "downloads/${VIDEO_ID}_full.%(ext)s" \
   "https://youtube.com/watch?v=${VIDEO_ID}"
 ```
@@ -53,28 +51,27 @@ ffmpeg -y -i "downloads/${VIDEO_ID}_full.mp4" \
 python3.12 -c "
 from faster_whisper import WhisperModel
 m = WhisperModel('base', device='cpu', compute_type='int8')
-segs, _ = m.transcribe(f'/tmp/${VIDEO_ID}_audio.wav', language='en', vad_filter=True)
+segs, _ = m.transcribe('/tmp/${VIDEO_ID}_audio.wav', language='en', vad_filter=True)
 import json
 print(json.dumps([{'start': s.start, 'end': s.end, 'text': s.text.strip()} for s in segs]))
 " > /tmp/transcript_full.json
 ```
 
-### 3. Generate Clip (v26 — final settings)
+### 3. Generate Clip
 ```python
 #!/usr/bin/env python3
 """Gen-Z Clip - Indigenous Australians"""
 import json, subprocess, os
 
 VIDEO_ID = "MwLuPhwpViI"
-VIDEO = f"/home/admin/clipper-company/downloads/{VIDEO_ID}_full.mp4"
-OUT_DIR = f"/home/admin/clipper-company/clips/{VIDEO_ID}/processed/v26"
-VPS_DIR = "/home/admin/domains/digitalnusa.com/public_html/anime-red/videos"
+VIDEO = f"downloads/{VIDEO_ID}_full.mp4"
+OUT_DIR = f"clips/{VIDEO_ID}/processed/v26"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 with open('/tmp/transcript_full.json') as f:
     transcript = json.load(f)
 
-CLIP_START = 172.0  # Hook segment start
+CLIP_START = 172.0
 
 def sec(ts):
     h = int(ts // 3600)
@@ -187,34 +184,35 @@ cmd = [
 ]
 
 subprocess.run(cmd)
-subprocess.run(['cp', OUTPUT, f"{VPS_DIR}/{VIDEO_ID}_v26.mp4"])
-print(f"URL: https://digitalnusa.com/anime-red/videos/{VIDEO_ID}_v26.mp4")
+print(f"Output: {OUTPUT}")
 ```
 
 ### 4. Upload to VPS
 ```bash
-cp "${OUT_DIR}/final.mp4" "${VPS_DIR}/${VIDEO_ID}_v26.mp4"
-# URL: https://digitalnusa.com/anime-red/videos/${VIDEO_ID}_v26.mp4
+# Copy to your public VPS folder
+cp "clips/${VIDEO_ID}/processed/v26/final.mp4" /var/www/html/videos/
 ```
 
-## Iteration Pattern (Erik's Workflow)
+## Repliz Schedule
+```bash
+AUTH=$(echo -n "$REPLIZ_API_KEY" | base64)
+ACCOUNT_ID="${REPLIZ_ACCOUNT_ID}"
+VIDEO_URL="https://your-domain.com/videos/${VIDEO_ID}_v26.mp4"
 
-Erik reviews iteratively — rapid iterations (v17→v26 in one session):
-1. Encode new version
-2. Screenshot at ~5s mark
-3. Vision check → feedback
-4. Adjust one parameter at a time
+curl -X POST "https://api.repliz.com/public/schedule" \
+  -H "Authorization: Basic ${AUTH}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountId": "'${ACCOUNT_ID}'",
+    "type": "video",
+    "title": "What the government gives us...",
+    "topic": "Entertainment",
+    "medias": [{"type": "video", "url": "'${VIDEO_URL}'"}],
+    "scheduleAt": "2026-09-01T14:00:00Z"
+  }'
+```
 
-Common adjustments:
-- Font size: increase by 3-5px each iteration
-- MarginV: decrease to move subtitle UP, increase to move DOWN
-- Position source: top center (alignment 8)
-
-**Final v26 settings (stable):**
-- Subtitle: 65px, MarginV=100 (bottom letterbox)
-- Source: 36px, yellow, top center
-
-## Key Settings (Final v26)
+## Subtitle Settings
 
 | Element | Font | Size | Color | Position |
 |---------|------|------|-------|----------|
