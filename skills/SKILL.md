@@ -1,0 +1,231 @@
+---
+name: indigenous-australians-clipper
+description: "Clipper pipeline untuk Indigenous Australians documentary (ABC Australia). YouTube: https://youtu.be/MwLuPhwpViI. FFmpeg: cinematic blur bg, letterbox 9:16, ASS subtitle Gen-Z style."
+tags: [clipper, youtube, indigenous-australians, documentary, abc-australia, gen-z-subtitle]
+version: 1.0
+---
+
+# Indigenous Australians Documentary — Clipper Pipeline
+
+Source: https://youtu.be/MwLuPhwpViI
+Channel: ABC Australia — "You Can't Ask That"
+Topic: Indigenous Australians documentary
+
+## Specs
+
+- **Output:** 9:16 vertical 720×1280
+- **Background:** Cinematic blur (Akbar Faizal style)
+  - Scale 1280x720 → split → bg: increase+crop+boxblur, fg: decrease → overlay
+- **Subtitle:** Poppins Bold 65px, white, bottom letterbox area
+  - MarginV: 100 (position in letterbox)
+  - Outline: 3px, Shadow: 1.5px
+- **Source credit:** Poppins Bold 36px, yellow (#FFFF00), top center
+- **Hook:** 40px bold white with black shadow
+
+## FFmpeg Filter
+
+```bash
+Vf="scale=1280:720:flags=lanczos,setsar=1[base];
+[base]split=2[bga][fga];
+[bga]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=15:2[bg];
+[fga]scale=720:1280:force_original_aspect_ratio=decrease[fg];
+[bg][fg]overlay=(W-w)/2:(H-h)/2[vid]"
+```
+
+## Workflow Steps
+
+### 1. Download Video
+```bash
+VIDEO_ID=MwLuPhwpViI
+cd /home/admin/clipper-company
+/home/admin/.local/bin/yt-dlp \
+  -f 18 \
+  -o "downloads/${VIDEO_ID}_full.%(ext)s" \
+  "https://youtube.com/watch?v=${VIDEO_ID}"
+```
+
+### 2. Transcribe
+```bash
+ffmpeg -y -i "downloads/${VIDEO_ID}_full.mp4" \
+  -vn -acodec pcm_s16le -ar 16000 -ac 1 \
+  /tmp/${VIDEO_ID}_audio.wav
+
+python3.12 -c "
+from faster_whisper import WhisperModel
+m = WhisperModel('base', device='cpu', compute_type='int8')
+segs, _ = m.transcribe(f'/tmp/${VIDEO_ID}_audio.wav', language='en', vad_filter=True)
+import json
+print(json.dumps([{'start': s.start, 'end': s.end, 'text': s.text.strip()} for s in segs]))
+" > /tmp/transcript_full.json
+```
+
+### 3. Generate Clip (v26 — final settings)
+```python
+#!/usr/bin/env python3
+"""Gen-Z Clip - Indigenous Australians"""
+import json, subprocess, os
+
+VIDEO_ID = "MwLuPhwpViI"
+VIDEO = f"/home/admin/clipper-company/downloads/{VIDEO_ID}_full.mp4"
+OUT_DIR = f"/home/admin/clipper-company/clips/{VIDEO_ID}/processed/v26"
+VPS_DIR = "/home/admin/domains/digitalnusa.com/public_html/anime-red/videos"
+os.makedirs(OUT_DIR, exist_ok=True)
+
+with open('/tmp/transcript_full.json') as f:
+    transcript = json.load(f)
+
+CLIP_START = 172.0  # Hook segment start
+
+def sec(ts):
+    h = int(ts // 3600)
+    m = int((ts % 3600) // 60)
+    s = int(ts % 60)
+    return f"{h}:{m:02d}:{s:02d}.{int((ts % 1) * 100):02d}"
+
+def wrap_text(text, max_chars=40):
+    words = text.split()
+    lines, current = [], ""
+    for w in words:
+        if len(current) + len(w) + 1 <= max_chars:
+            current = (current + " " + w).strip()
+        else:
+            if current: lines.append(current)
+            current = w
+    if current: lines.append(current)
+    return lines
+
+clip_segs = [s for s in transcript if s['end'] > CLIP_START and s['start'] < CLIP_START + 59]
+clip_segs.sort(key=lambda x: x['start'])
+
+merged = []
+buffer_text = ""
+buffer_start = None
+for seg in clip_segs:
+    text = seg['text'].strip()
+    if not buffer_start:
+        buffer_start = seg['start']
+    buffer_text += " " + text
+    buffer_text = buffer_text.strip()
+    if len(buffer_text) > 55 or seg == clip_segs[-1]:
+        merged.append({'start': buffer_start, 'end': seg['end'], 'text': buffer_text})
+        buffer_text = ""
+        buffer_start = None
+
+ass = """[Script Info]
+Title: GenZ Clip
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+PlayResX: 720
+PlayResY: 1280
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: Sub,Poppins Bold,65,&H00FFFFFF,&H000000FF,&H00000000,&HCC000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,15,15,100,1
+Style: Src,Poppins Bold,36,&H00FFFF00,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2.5,2,8,10,10,20,1
+Style: Hook,Poppins Bold,40,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,-1,0,0,0,100,100,2,0,1,3,2,2,10,10,1050,1
+Style: Cta,Poppins SemiBold,20,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,-1,0,0,0,100,100,0,0,1,2,1,2,10,10,70,1
+
+[Events]
+Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+"""
+
+# Source credit
+ass += f"Dialogue: 0,{sec(0)},{sec(59)},Src,,0,0,0,,ABC Australia | You Can't Ask That\n"
+# Hook
+ass += f"Dialogue: 1,{sec(0)},{sec(2.5)},Hook,,0,0,0,,WHAT FREE STUFF FROM GOVT?\n"
+
+# Subtitles
+for item in merged:
+    start = item['start'] - CLIP_START
+    end = item['end'] - CLIP_START
+    if start < 0: start = 0
+    if end > 59: end = 59
+    if start >= 59: continue
+    
+    lines = wrap_text(item['text'], 40)
+    seg_dur = (end - start) / len(lines) if lines else 2
+    
+    for i, line in enumerate(lines):
+        line_start = start + (i * seg_dur)
+        line_end = min(line_start + seg_dur + 0.3, end)
+        ass += f"Dialogue: 1,{sec(line_start)},{sec(line_end)},Sub,,0,0,0,,{line}\n"
+
+# CTA
+ass += f"Dialogue: 0,{sec(52)},{sec(58)},Cta,,0,0,0,,Watch full episode on ABC iview\n"
+
+ASS_FILE = f"{OUT_DIR}/clip.ass"
+with open(ASS_FILE, 'w', encoding='utf-8') as f:
+    f.write(ass)
+
+OUTPUT = f"{OUT_DIR}/final.mp4"
+
+cmd = [
+    'ffmpeg', '-y',
+    '-ss', str(CLIP_START),
+    '-t', '59',
+    '-i', VIDEO,
+    '-filter_complex',
+    '[0:v]scale=1280:720:flags=lanczos,setsar=1[base];'
+    '[base]split=2[bga][fga];'
+    '[bga]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=15:2[bg];'
+    '[fga]scale=720:1280:force_original_aspect_ratio=decrease[fg];'
+    '[bg][fg]overlay=(W-w)/2:(H-h)/2[vid];'
+    '[vid]ass=' + ASS_FILE + '[out]',
+    '-map', '[out]',
+    '-map', '0:a',
+    '-c:v', 'libx264',
+    '-crf', '20',
+    '-preset', 'fast',
+    '-r', '30',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ar', '48000',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    OUTPUT
+]
+
+subprocess.run(cmd)
+subprocess.run(['cp', OUTPUT, f"{VPS_DIR}/{VIDEO_ID}_v26.mp4"])
+print(f"URL: https://digitalnusa.com/anime-red/videos/{VIDEO_ID}_v26.mp4")
+```
+
+### 4. Upload to VPS
+```bash
+cp "${OUT_DIR}/final.mp4" "${VPS_DIR}/${VIDEO_ID}_v26.mp4"
+# URL: https://digitalnusa.com/anime-red/videos/${VIDEO_ID}_v26.mp4
+```
+
+## Iteration Pattern (Erik's Workflow)
+
+Erik reviews iteratively — rapid iterations (v17→v26 in one session):
+1. Encode new version
+2. Screenshot at ~5s mark
+3. Vision check → feedback
+4. Adjust one parameter at a time
+
+Common adjustments:
+- Font size: increase by 3-5px each iteration
+- MarginV: decrease to move subtitle UP, increase to move DOWN
+- Position source: top center (alignment 8)
+
+**Final v26 settings (stable):**
+- Subtitle: 65px, MarginV=100 (bottom letterbox)
+- Source: 36px, yellow, top center
+
+## Key Settings (Final v26)
+
+| Element | Font | Size | Color | Position |
+|---------|------|------|-------|----------|
+| Subtitle | Poppins Bold | 65px | White | Bottom letterbox (MarginV=100) |
+| Source | Poppins Bold | 36px | Yellow | Top center |
+| Hook | Poppins Bold | 40px | White | Center with shadow |
+| CTA | Poppins SemiBold | 20px | White | Bottom |
+
+## Clip Segment
+
+- **Start:** 172.0s
+- **Duration:** 59s
+- **Hook:** "WHAT FREE STUFF FROM GOVT?"
+- **Content:** Q&A about government benefits for Indigenous Australians

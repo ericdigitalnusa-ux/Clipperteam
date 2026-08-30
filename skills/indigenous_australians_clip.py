@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Gen-Z Clip v19 - Bigger source + subtitle in letterbox area"""
+import json, subprocess, os
+
+VIDEO_ID = "MwLuPhwpViI"
+VIDEO = f"/home/admin/clipper-company/downloads/{VIDEO_ID}_full.mp4"
+OUT_DIR = f"/home/admin/clipper-company/clips/{VIDEO_ID}/processed/v26"
+VPS_DIR = "/home/admin/domains/digitalnusa.com/public_html/anime-red/videos"
+os.makedirs(OUT_DIR, exist_ok=True)
+
+with open('/tmp/transcript_full.json') as f:
+    transcript = json.load(f)
+
+CLIP_START = 172.0
+
+def sec(ts):
+    h = int(ts // 3600)
+    m = int((ts % 3600) // 60)
+    s = int(ts % 60)
+    return f"{h}:{m:02d}:{s:02d}.{int((ts % 1) * 100):02d}"
+
+def wrap_text(text, max_chars=40):
+    words = text.split()
+    lines, current = [], ""
+    for w in words:
+        if len(current) + len(w) + 1 <= max_chars:
+            current = (current + " " + w).strip()
+        else:
+            if current: lines.append(current)
+            current = w
+    if current: lines.append(current)
+    return lines
+
+clip_segs = [s for s in transcript if s['end'] > CLIP_START and s['start'] < CLIP_START + 59]
+clip_segs.sort(key=lambda x: x['start'])
+
+merged = []
+buffer_text = ""
+buffer_start = None
+for seg in clip_segs:
+    text = seg['text'].strip()
+    if not buffer_start:
+        buffer_start = seg['start']
+    buffer_text += " " + text
+    buffer_text = buffer_text.strip()
+    if len(buffer_text) > 55 or seg == clip_segs[-1]:
+        merged.append({'start': buffer_start, 'end': seg['end'], 'text': buffer_text})
+        buffer_text = ""
+        buffer_start = None
+
+# Styles: Bigger source + subtitle in letterbox (low marginV)
+ass = """[Script Info]
+Title: GenZ v19
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+PlayResX: 720
+PlayResY: 1280
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: Sub,Poppins Bold,65,&H00FFFFFF,&H000000FF,&H00000000,&HCC000000,-1,0,0,0,100,100,0,0,1,3,1.5,2,15,15,100,1
+Style: Src,Poppins Bold,36,&H00FFFF00,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2.5,2,8,10,10,20,1
+Style: Cta,Poppins SemiBold,20,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,-1,0,0,0,100,100,0,0,1,2,1,2,10,10,70,1
+
+[Events]
+Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+"""
+
+# Source - top center
+ass += f"Dialogue: 0,{sec(0)},{sec(59)},Src,,0,0,0,,ABC Australia | You Can't Ask That\n"
+
+# Subtitles - bottom (MarginV=40 = near bottom of video)
+for item in merged:
+    start = item['start'] - CLIP_START
+    end = item['end'] - CLIP_START
+    if start < 0: start = 0
+    if end > 59: end = 59
+    if start >= 59: continue
+    
+    lines = wrap_text(item['text'], 40)
+    seg_dur = (end - start) / len(lines) if lines else 2
+    
+    for i, line in enumerate(lines):
+        line_start = start + (i * seg_dur)
+        line_end = min(line_start + seg_dur + 0.3, end)
+        ass += f"Dialogue: 1,{sec(line_start)},{sec(line_end)},Sub,,0,0,0,,{line}\n"
+
+# CTA
+ass += f"Dialogue: 0,{sec(52)},{sec(58)},Cta,,0,0,0,,Watch full episode on ABC iview\n"
+
+ASS_FILE = f"{OUT_DIR}/clip.ass"
+with open(ASS_FILE, 'w', encoding='utf-8') as f:
+    f.write(ass)
+
+print(f"ASS: {ASS_FILE}")
+
+OUTPUT = f"{OUT_DIR}/final.mp4"
+
+cmd = [
+    'ffmpeg', '-y',
+    '-ss', str(CLIP_START),
+    '-t', '59',
+    '-i', VIDEO,
+    '-filter_complex',
+    '[0:v]scale=1280:720:flags=lanczos,setsar=1[base];'
+    '[base]split=2[bga][fga];'
+    '[bga]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=15:2[bg];'
+    '[fga]scale=720:1280:force_original_aspect_ratio=decrease[fg];'
+    '[bg][fg]overlay=(W-w)/2:(H-h)/2[vid];'
+    '[vid]ass=' + ASS_FILE + '[out]',
+    '-map', '[out]',
+    '-map', '0:a',
+    '-c:v', 'libx264',
+    '-crf', '20',
+    '-preset', 'fast',
+    '-r', '30',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ar', '48000',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    OUTPUT
+]
+
+print("Encoding v19...")
+result = subprocess.run(cmd, capture_output=True, text=True)
+if result.returncode != 0:
+    print("Error:", result.stderr[-2000:])
+else:
+    print(f"Created: {OUTPUT}")
+    subprocess.run(['cp', OUTPUT, f"{VPS_DIR}/MwLuPhwpViI_v26.mp4"])
+    print(f"URL: https://digitalnusa.com/anime-red/videos/MwLuPhwpViI_v26.mp4")
